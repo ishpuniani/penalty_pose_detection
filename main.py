@@ -58,13 +58,21 @@ try:
     if __name__ == '__main__':
         # Flags
         img_path = "resources/img1.png"
+        vid_path = "resources/videos/video1.mp4"
+        output_path = "output/"
 
         # Custom Params (refer to include/openpose/flags.hpp for more parameters)
+        # --write_json ./output/ --display 0  --write_video ../openpose.avi
         params = dict()
         params["model_folder"] = "openpose/models/"
         params["number_people_max"] = 2
         # params["tracking"] = 5
-        # params["video"] = "path"
+        # params["number_people_max"] = 1
+        params["video"] = vid_path
+        params["write_json"] = output_path + '/json/'
+        params["display"] = 0
+        # params["write_video"] = 'openpose.avi'
+        params["write_images"] = output_path + '/img/'
         # params["hand"] = True
         # params["face"] = True
         # params["face_detector"] = 0
@@ -75,21 +83,24 @@ try:
         opWrapper = op.WrapperPython()
         opWrapper.configure(params)
         opWrapper.start()
+        opWrapper.execute()
 
         # Process Image
-        datum = op.Datum()
-        imageToProcess = cv2.imread(img_path)
-        datum.cvInputData = imageToProcess
-        opWrapper.emplaceAndPop([datum])
+        # datum = op.Datum()
+        # vidToProcess = cv2.VideoCapture(vid_path)
+        # datum.cvInputData = vidToProcess
+        # imageToProcess = cv2.imread(img_path)
+        # datum.cvInputData = imageToProcess
+        # opWrapper.emplaceAndPop([datum])
 
         # Display Image
-        #TODO: refer to https://github.com/CMU-Perceptual-Computing-Lab/openpose/blob/master/doc/output.md for output format
-        print("Body keypoints: \n" + str(datum.poseKeypoints))
-        print("Face keypoints: \n" + str(datum.faceKeypoints))
-        print("Left hand keypoints: \n" + str(datum.handKeypoints[0]))
-        print("Right hand keypoints: \n" + str(datum.handKeypoints[1]))
-        cv2.imshow("OpenPose 1.5.1 - Tutorial Python API", datum.cvOutputData)
-        cv2.waitKey(0)
+        # #TODO: refer to https://github.com/CMU-Perceptual-Computing-Lab/openpose/blob/master/doc/output.md for output format
+        # print("Body keypoints: \n" + str(datum.poseKeypoints))
+        # print("Face keypoints: \n" + str(datum.faceKeypoints))
+        # print("Left hand keypoints: \n" + str(datum.handKeypoints[0]))
+        # print("Right hand keypoints: \n" + str(datum.handKeypoints[1]))
+        # cv2.imshow("OpenPose 1.5.1 - Tutorial Python API", datum.cvOutputData)
+        # cv2.waitKey(0)
 
 except Exception as e:
     print(e)
