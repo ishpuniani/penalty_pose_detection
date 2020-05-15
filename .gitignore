@@ -1,3 +1,6 @@
 .idea
 
 openpose
+
+.DS_Store
+resources
