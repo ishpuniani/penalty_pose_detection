@@ -1,5 +1,3 @@
-# From Python
-# It requires OpenCV installed for Python
 import sys
 import traceback
 
@@ -7,6 +5,7 @@ import cv2
 import os
 import numpy as np
 from sys import platform
+from datetime import datetime
 
 try:
     # Import Openpose (Windows/Ubuntu/OSX)
@@ -154,17 +153,18 @@ try:
         return out
 
 
-    def process_video(vid_path, out_vid_path, f_height=720, f_width=1280, read_frame_rate=2, display=False):
+    def process_video(vid_path, out_vid_path, f_height=720, f_width=1280, read_frame_rate=2, starting_frame = 0, display=False):
         fourcc = cv2.VideoWriter_fourcc(*'mp4v')
         out_vid = cv2.VideoWriter(out_vid_path, fourcc, 20.0, (f_width, f_height))
 
         cap = cv2.VideoCapture(vid_path)
-        count = 72
+        count = starting_frame
         cap.set(cv2.CAP_PROP_POS_FRAMES, count)
         while cap.isOpened():
             grab_success = cap.grab()
             if grab_success:
                 if count % read_frame_rate == 0:
+                    print('------- Frame ' + str(count) + ' ----------')
                     hasframe, frame = cap.retrieve()
                     if hasframe:
                         out_image = process_image(frame, display)
@@ -178,8 +178,6 @@ try:
                 count += 1
             else:
                 break
-
-        print("Written video to " + out_vid_path)
 
 
     def get_goal_post_coords(image):
@@ -340,8 +338,8 @@ try:
             res = True
         elif abs(lhip[0] - rhip[0]) < HIP_THRESHOLD:
             res = True
-        elif abs(lelbow[1] - lwrist[1]) < 6 or abs(relbow[1] - rwrist[1]) < 6:
-            res = True
+        # elif abs(lelbow[1] - lwrist[1]) < 6 or abs(relbow[1] - rwrist[1]) < 6:
+        #     res = True
 
         return res
 
@@ -377,6 +375,59 @@ try:
         return res
 
 
+    def identify_keypoints(keypoints):
+        keypoints_list = []
+        for kp in keypoints:
+            if is_valid_keypoints(kp):
+                keypoints_list.append(kp)
+
+        striker_kp = None
+
+        # check if there exists any body point where neck is outside of LHip and RHip
+        for kp in keypoints_list:
+            neck = kp[m_bodyPart_i['Neck']]
+            lhip = kp[m_bodyPart_i['LHip']]
+            rhip = kp[m_bodyPart_i['RHip']]
+
+            left = min(lhip[0], rhip[0])
+            right = max(lhip[0], rhip[0])
+
+            if not left < neck[0] < right:
+                striker_kp = kp
+
+        # If no striker found earlier check for body keypoint with thinnest hip size, that is most likely to be a
+        # striker since the striker is facing sideways
+        if striker_kp is None:
+            min_hip = 1000
+            min_hip_kp = None
+            for kp in keypoints_list:
+                lhip = kp[m_bodyPart_i['LHip']]
+                rhip = kp[m_bodyPart_i['RHip']]
+
+                hipLength = abs(lhip[0] - rhip[0])
+                if hipLength < min_hip:
+                    min_hip = hipLength
+                    min_hip_kp = kp
+
+            striker_kp = min_hip_kp
+
+        ref_arr = []
+        for kp in keypoints_list:
+            if not np.equal(kp, striker_kp).all():
+                ref_arr.append(kp)
+
+        print("\nStriker:: \n")
+        printKp(striker_kp)
+
+        print("\nRefs:: \n")
+        for kp in ref_arr:
+            printKp(kp)
+            print('\n')
+
+        print("\n\n")
+        return striker_kp, ref_arr
+
+
     def process_image(image, display):
         opWrapper = init_op()
         datum = op.Datum()
@@ -402,50 +453,38 @@ try:
             cv2.waitKey(0)
 
         body_keypoints = datum.poseKeypoints
-        for kp in body_keypoints:
-            identifier = "Other"
-            printKp(kp)
-            if is_valid_keypoints(kp):
-                if is_striker(kp):
-                    identifier = "Striker"
-                elif is_referee(kp):
-                    identifier = "Referee"
-                out_image = draw_image_bound(out_image, kp, identifier)
-                if display:
-                    cv2.imshow("Temp Out Image ", out_image)
-                    cv2.waitKey(0)
-                    print("here")
+        striker_bp, ref_bp_arr = identify_keypoints(body_keypoints)
+        out_image = draw_image_bound(out_image, striker_bp, "Striker")
+        for kp in ref_bp_arr:
+            out_image = draw_image_bound(out_image, kp, "Referee")
 
-        # bodyBounds = get_body_bounds(body_keypoints)
-        # for bound in bodyBounds:
-        #     out_image = draw_bound(out_image, bound, 'TestA')
-
-        # if display:
-        #     cv2.imshow("Final Out Image", out_image)
-        #     cv2.waitKey(25)
         if display:
             cv2.destroyAllWindows()
         return out_image
 
 
     def run():
-        frame_rate = 2
+        start_time = datetime.now().strftime("%H:%M:%S")
+
+        print("Start Time:: " + start_time)
+
+        frame_rate = 1
+        starting_frame = 0
         # Flags
         img_path = "resources/img4.png"
-        vid_path = "resources/videos/video1/video1-1.mp4"
-        out_vid_path = "output.mp4"
-        output_path = "output/"
+        vid_path = "resources/videos/video1/video1-4.mp4"
+        out_vid_path = "resources/output/video1-4-out.mp4"
+
+        # image = cv2.imread(img_path)
+        # process_image(image, False)
 
         fheight = 720
         fwidth = 1280
-        process_video(vid_path, out_vid_path, fheight, fwidth, frame_rate, True)
-        # image = cv2.imread(img_path)
-        # process_image(image, True)
+        process_video(vid_path, out_vid_path, fheight, fwidth, frame_rate, starting_frame, False)
 
-        # gk_bp, gk_img, gp_coords = get_gk_bodypoints(image, True)
-        # x,y,x2,y2 = gp_coords
-        # image[y:y2, x:x2] = gk_img
-        # cv2.imwrite("gk.png",image)
+        print("Start Time:: " + start_time)
+        end_time = datetime.now().strftime("%H:%M:%S")
+        print("End Time:: " + end_time)
 
     if __name__ == '__main__':
         run()
