@@ -1,5 +1,7 @@
+import math
 import sys
 import traceback
+import ground_detection
 
 import cv2
 import os
@@ -66,7 +68,7 @@ try:
             # Custom Params (refer to include/openpose/flags.hpp for more parameters)
             params = dict()
             params["model_folder"] = "openpose/models/"
-            params["number_people_max"] = 3
+            # params["number_people_max"] = 3
 
             # Starting OpenPose
             opw = op.WrapperPython()
@@ -153,7 +155,7 @@ try:
         return out
 
 
-    def process_video(vid_path, out_vid_path, f_height=720, f_width=1280, read_frame_rate=2, starting_frame = 0, display=False):
+    def process_video(vid_path, out_vid_path, f_height=720, f_width=1280, read_frame_rate=1, starting_frame=0, display=False):
         fourcc = cv2.VideoWriter_fourcc(*'mp4v')
         out_vid = cv2.VideoWriter(out_vid_path, fourcc, 20.0, (f_width, f_height))
 
@@ -167,7 +169,7 @@ try:
                     print('------- Frame ' + str(count) + ' ----------')
                     hasframe, frame = cap.retrieve()
                     if hasframe:
-                        out_image = process_image(frame, display)
+                        out_image = process_image_v2(frame, display)
                         if display:
                             cv2.imshow("Final Out Image: " + str(count), out_image)
                             cv2.waitKey(0)
@@ -178,6 +180,7 @@ try:
                 count += 1
             else:
                 break
+        out_vid.release()
 
 
     def get_goal_post_coords(image):
@@ -266,6 +269,9 @@ try:
 
 
     def printKp(kp):
+        if kp is None:
+            return
+
         print("Nose:" + str(kp[m_bodyPart_i['Nose']]))
         print("Neck:" + str(kp[m_bodyPart_i['Neck']]))
 
@@ -375,15 +381,48 @@ try:
         return res
 
 
-    def identify_keypoints(keypoints):
+    def mid_bound_point(bound):
+        x, y, x2, y2 = bound
+        return (abs(x - x2) / 2, abs(y - y2) / 2)
+
+    def identify_keypoints(image, keypoints, detect_gk=False):
         keypoints_list = []
         for kp in keypoints:
             if is_valid_keypoints(kp):
                 keypoints_list.append(kp)
 
         striker_kp = None
+        gk_kp = None
+
+        gp_coords = get_goal_post_coords(image)
+        gx, gy, gx2, gy2 = gp_coords
+        g_mid = mid_bound_point(gp_coords)  # middle point of the goal post, [x,y]
+
+        if detect_gk:
+            # find gk and remove from list
+            # goalkeeper will be in closest proximity to the goal post coordinates
+            # goalkeeper will be inside the goal frame
+            min_dist = 1000
+            for kp in keypoints_list:
+                bbox = get_body_bound(kp)
+                bx, by, bx2, by2 = bbox
+                mid = mid_bound_point(bbox)
+                dist = math.sqrt((mid[0] - g_mid[0])*(mid[0] - g_mid[0]) + (mid[1] - g_mid[1])*(mid[1] - g_mid[1]))
+                if gx < bx < gx2 and gy < by < gy2:
+                    if dist < min_dist:
+                        min_dist = dist
+                        gk_kp = kp
+
+            if gk_kp is not None:
+                # removing gk_bp from main keypoints list
+                temp = []
+                for kp in keypoints_list:
+                    if not np.equal(kp, gk_kp).all():
+                        temp.append(kp)
+                keypoints_list = temp
 
         # check if there exists any body point where neck is outside of LHip and RHip
+        neckOutsideBp = []
         for kp in keypoints_list:
             neck = kp[m_bodyPart_i['Neck']]
             lhip = kp[m_bodyPart_i['LHip']]
@@ -393,11 +432,11 @@ try:
             right = max(lhip[0], rhip[0])
 
             if not left < neck[0] < right:
-                striker_kp = kp
+                neckOutsideBp.append(kp)
 
-        # If no striker found earlier check for body keypoint with thinnest hip size, that is most likely to be a
-        # striker since the striker is facing sideways
-        if striker_kp is None:
+        if len(neckOutsideBp) == 0:
+            # If no striker found earlier check for body keypoint with thinnest hip size, that is most likely to be a
+            # striker since the striker is facing sideways
             min_hip = 1000
             min_hip_kp = None
             for kp in keypoints_list:
@@ -408,8 +447,23 @@ try:
                 if hipLength < min_hip:
                     min_hip = hipLength
                     min_hip_kp = kp
-
             striker_kp = min_hip_kp
+
+        elif len(neckOutsideBp) == 1:
+            striker_kp = neckOutsideBp[0]
+
+        else:
+            # Find body furthest away from the goal since the other referee next to the line is crouching
+            min_dist = 1000
+            min_dist_kp = None
+            for kp in keypoints_list:
+                mid = mid_bound_point(get_body_bound(kp))
+                neck = kp[m_bodyPart_i['Neck']]
+                dist = math.sqrt((mid[0] - g_mid[0]) * (mid[0] - g_mid[0]) + (mid[1] - g_mid[1]) * (mid[1] - g_mid[1]))
+                if dist < min_dist:
+                    min_dist = dist
+                    min_dist_kp = kp
+            striker_kp = min_dist_kp
 
         ref_arr = []
         for kp in keypoints_list:
@@ -419,13 +473,49 @@ try:
         print("\nStriker:: \n")
         printKp(striker_kp)
 
+        if detect_gk:
+            print("\nGoalkeeper:: \n")
+            printKp(gk_kp)
+
         print("\nRefs:: \n")
         for kp in ref_arr:
             printKp(kp)
             print('\n')
 
         print("\n\n")
-        return striker_kp, ref_arr
+        return striker_kp, ref_arr, gk_kp
+
+
+    def process_image_v2(image, display):
+        opWrapper = init_op()
+        datum = op.Datum()
+
+        # removing crowd by generating a masked image on the basis of ground color
+        masked_image = ground_detection.filter_ground_in_frame(image)
+
+        datum.cvInputData = masked_image
+        opWrapper.emplaceAndPop([datum])
+        op_img = datum.cvOutputData.copy()
+
+        out_image = cv2.bitwise_or(op_img, image)
+        if display:
+            cv2.imshow("Op Image",op_img)
+            cv2.waitKey(0)
+            # cv2.imshow("Out Image", out_image)
+            # cv2.waitKey(30)
+
+        body_keypoints = datum.poseKeypoints
+        striker_bp, ref_bp_arr, gk_bp = identify_keypoints(image, body_keypoints, True)
+        out_image = draw_image_bound(out_image, striker_bp, "Striker")
+        out_image = draw_image_bound(out_image, gk_bp, "Goalkeeper")
+        for kp in ref_bp_arr:
+            out_image = draw_image_bound(out_image, kp, "Referee")
+
+        if display:
+            cv2.imshow("Out Image", out_image)
+            cv2.waitKey(0)
+            cv2.destroyAllWindows()
+        return out_image
 
 
     def process_image(image, display):
@@ -453,7 +543,7 @@ try:
             cv2.waitKey(0)
 
         body_keypoints = datum.poseKeypoints
-        striker_bp, ref_bp_arr = identify_keypoints(body_keypoints)
+        striker_bp, ref_bp_arr, _ = identify_keypoints(image, body_keypoints)
         out_image = draw_image_bound(out_image, striker_bp, "Striker")
         for kp in ref_bp_arr:
             out_image = draw_image_bound(out_image, kp, "Referee")
@@ -470,17 +560,20 @@ try:
 
         frame_rate = 1
         starting_frame = 0
-        # Flags
         img_path = "resources/img4.png"
-        vid_path = "resources/videos/video1/video1-4.mp4"
-        out_vid_path = "resources/output/video1-4-out.mp4"
+        vid_path = "resources/videos/video1/video1.mp4"
+        out_vid_path = "resources/output/video1-out.mp4"
 
-        # image = cv2.imread(img_path)
-        # process_image(image, False)
 
         fheight = 720
         fwidth = 1280
         process_video(vid_path, out_vid_path, fheight, fwidth, frame_rate, starting_frame, False)
+
+        # Test Code
+        # process_video(vid_path, out_vid_path, fheight, fwidth, read_frame_rate=1, starting_frame=40, display=True)
+
+        # image = cv2.imread(img_path)
+        # process_image(image, False)
 
         print("Start Time:: " + start_time)
         end_time = datetime.now().strftime("%H:%M:%S")

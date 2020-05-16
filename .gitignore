@@ -4,3 +4,5 @@ openpose
 
 .DS_Store
 resources
+
+__pycache__/
