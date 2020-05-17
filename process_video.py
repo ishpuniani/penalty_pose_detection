@@ -409,10 +409,10 @@ try:
             min_dist = 1000
             for kp in keypoints_list:
                 bbox = get_body_bound(kp)
-                bx, by, bx2, by2 = bbox
+                # bx, by, bx2, by2 = bbox
                 mid = mid_bound_point(bbox)
                 dist = math.sqrt((mid[0] - g_mid[0])*(mid[0] - g_mid[0]) + (mid[1] - g_mid[1])*(mid[1] - g_mid[1]))
-                if gx < bx < gx2 and gy < by < gy2:
+                if gx < mid[0] < gx2 and gy < mid[1] < gy2:
                     if dist < min_dist:
                         min_dist = dist
                         gk_kp = kp
