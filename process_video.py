@@ -189,7 +189,11 @@ try:
         :param image: main image
         :return: goal post top-left and opposite coordinates. [x,y,x2,y2]
         """
-        coords = [720,240,1120,520]
+        # for video1.mp4
+        # coords = [720,240,1120,520]
+
+        # for video3.mp4
+        coords = [100,300,650,600]
         return coords
 
 
@@ -383,7 +387,7 @@ try:
 
     def mid_bound_point(bound):
         x, y, x2, y2 = bound
-        return (abs(x - x2) / 2, abs(y - y2) / 2)
+        return ((x + x2)/2, (y + y2)/2)
 
     def identify_keypoints(image, keypoints, detect_gk=False):
         keypoints_list = []
@@ -505,15 +509,20 @@ try:
             # cv2.waitKey(30)
 
         body_keypoints = datum.poseKeypoints
-        striker_bp, ref_bp_arr, gk_bp = identify_keypoints(image, body_keypoints, True)
-        out_image = draw_image_bound(out_image, striker_bp, "Striker")
-        out_image = draw_image_bound(out_image, gk_bp, "Goalkeeper")
-        for kp in ref_bp_arr:
-            out_image = draw_image_bound(out_image, kp, "Referee")
+        if body_keypoints.size != 1:
+            striker_bp, ref_bp_arr, gk_bp = identify_keypoints(image, body_keypoints, True)
+            out_image = draw_image_bound(out_image, striker_bp, "Striker")
+            out_image = draw_image_bound(out_image, gk_bp, "Goalkeeper")
+            for kp in ref_bp_arr:
+                out_image = draw_image_bound(out_image, kp, "Referee")
+        else:
+            out_image = image
 
         if display:
-            cv2.imshow("Out Image", out_image)
-            cv2.waitKey(0)
+            # gp = get_goal_post_coords(out_image)
+            # tempout = cv2.rectangle(out_image, (gp[0], gp[1]), (gp[2], gp[3]), (255, 0, 0))
+            # cv2.imshow("Out Image", out_image)
+            # cv2.waitKey(0)
             cv2.destroyAllWindows()
         return out_image
 
@@ -561,8 +570,8 @@ try:
         frame_rate = 1
         starting_frame = 0
         img_path = "resources/img4.png"
-        vid_path = "resources/videos/video1/video1.mp4"
-        out_vid_path = "resources/output/video1-out.mp4"
+        vid_path = "resources/videos/video3/video3.mp4"
+        out_vid_path = "resources/output/video3-out.mp4"
 
 
         fheight = 720
@@ -570,7 +579,7 @@ try:
         process_video(vid_path, out_vid_path, fheight, fwidth, frame_rate, starting_frame, False)
 
         # Test Code
-        # process_video(vid_path, out_vid_path, fheight, fwidth, read_frame_rate=1, starting_frame=40, display=True)
+        # process_video(vid_path, out_vid_path, fheight, fwidth, read_frame_rate=5, starting_frame=45, display=True)
 
         # image = cv2.imread(img_path)
         # process_image(image, False)
